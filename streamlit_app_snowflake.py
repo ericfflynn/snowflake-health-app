@@ -1,4 +1,4 @@
-# Import python packages
+from snowflake.snowpark.context import get_active_session
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -11,25 +11,37 @@ st.set_page_config(
     initial_sidebar_state="expanded",
     
 )
-st.title("Eric Flynn's Personal Health Application :man-lifting-weights:")
-st.markdown("""---""")
+session = get_active_session()
 
-raw_df = pd.read_csv("./raw_data.csv")
-raw_df['DATE'] = raw_df['DATE'].apply(lambda x: datetime.datetime.strptime(x,"%Y-%m-%d"))
+raw_df = session.sql(
+    """
+    select 
+        src:name::string as metric,
+        src:units::string as units,
+        value:date::date as date,
+        value:qty::float as qty
+    from 
+        raw_metrics,
+        lateral flatten(input => src:data)
+    """
+).to_pandas()
+
 rep = raw_df.METRIC.unique()
 raw_df.replace(rep,['Body Fat %','BMI','Calcium','Carbohydrates','Cholesterol','Dietary Calories','Fiber','Sugar','Mono-Fat','Potassium','Vitamin C','Iron','Sodium','Fat','Poly-Fat','Protein','Saturated Fat','Exercise Time','Step Count','Weight','Exercise Calories'], inplace=True)
+
+st.title("Eric Flynn's Personal Health Application :man-lifting-weights:")
+st.markdown("""---""")
 
 start_date = st.sidebar.date_input('Start Date',min(raw_df['DATE']))
 end_date = st.sidebar.date_input('End Date',max(raw_df['DATE']))
 metric = st.sidebar.selectbox("Metric", raw_df.METRIC.unique(), index=5)
-
 
 base_df = raw_df.query("DATE >= @start_date & DATE <= @end_date")
 
 line_data = base_df[base_df['METRIC'] == metric]
 line_unit = line_data['UNITS'].unique()[0]
 
-macros = base_df[base_df['METRIC'].isin(['Protein','Carbohydrates','Fat'])].groupby('METRIC').mean()
+macros = base_df[base_df['METRIC'].isin(['Protein','Carbohydrates','Fat'])].groupby('METRIC').mean(numeric_only=True)
 active_mins = int(base_df[base_df['METRIC'] == 'Exercise Time']['QTY'].mean())
 
 avg_cals = int(base_df[base_df['METRIC'] == 'Dietary Calories']['QTY'].mean())
@@ -45,9 +57,7 @@ with col1_3:
     st.metric(label="Average Daily Protein", value=f"{avg_daily_protein:,.1f} Grams", delta=f'{(avg_daily_protein-last_recorded_weight):,.1f}')
 with col1_4:
     st.metric(label="Last Recorded Weight", value=f"{last_recorded_weight} lbs", delta=(last_recorded_weight-180))
-
-st.markdown("")
-st.markdown("")
+    
 col1_2, col2_2= st.columns([.6, .4])
 
 with col1_2:
@@ -70,4 +80,3 @@ with col2_2:
     ax1.axis('equal')  
     plt.tight_layout()
     st.pyplot(fig)
-
